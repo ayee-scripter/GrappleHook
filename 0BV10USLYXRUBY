@@ -1,0 +1,150 @@
+-- Services
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- Remove previous UI if script is re-run
+if CoreGui:FindFirstChild("GrappleHookCircleGui") then
+    CoreGui.GrappleHookCircleGui:Destroy()
+end
+
+-- Create ScreenGui inside CoreGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "GrappleHookCircleGui"
+screenGui.IgnoreGuiInset = true
+screenGui.ResetOnSpawn = false
+screenGui.Parent = CoreGui
+
+-- Create Circular Gray Button
+local button = Instance.new("TextButton")
+button.Name = "GHButton"
+button.Size = UDim2.new(0, 60, 0, 60)
+button.Position = UDim2.new(0.05, 0, 0.4, 0)
+button.BackgroundColor3 = Color3.fromRGB(150, 150, 150) -- Gray
+button.TextColor3 = Color3.fromRGB(0, 0, 0)             -- Black Text
+button.TextSize = 22
+button.Font = Enum.Font.SourceSansBold
+button.Text = "GH"
+button.Active = true
+button.Draggable = true
+button.Parent = screenGui
+
+-- Make Button Circular
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(1, 0) -- Circle shape
+uiCorner.Parent = button
+
+-- Button Outline
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = Color3.fromRGB(40, 40, 40)
+uiStroke.Thickness = 3
+uiStroke.Parent = button
+
+---------------------------------------------------------
+-- Grapple & Rope Mechanics
+---------------------------------------------------------
+local isGrappling = false
+
+local function createRope(startPart, targetPosition)
+    local attachmentStart = Instance.new("Attachment")
+    attachmentStart.Parent = startPart
+
+    local endPart = Instance.new("Part")
+    endPart.Size = Vector3.new(0.1, 0.1, 0.1)
+    endPart.Position = targetPosition
+    endPart.Anchored = true
+    endPart.Transparency = 1
+    endPart.CanCollide = false
+    endPart.Parent = workspace
+
+    local attachmentEnd = Instance.new("Attachment")
+    attachmentEnd.Parent = endPart
+
+    -- Thick Black String
+    local beam = Instance.new("Beam")
+    beam.Texture = ""
+    beam.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
+    beam.Width0 = 0.5
+    beam.Width1 = 0.5
+    beam.FaceCamera = true
+    beam.Attachment0 = attachmentStart
+    beam.Attachment1 = attachmentEnd
+    beam.Parent = workspace
+
+    return beam, endPart, attachmentStart
+end
+
+local function grappleTo(targetPosition)
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local rootPart = character.HumanoidRootPart
+    isGrappling = true
+
+    -- Create black rope
+    local beam, endPart, attachmentStart = createRope(rootPart, targetPosition)
+
+    -- Move character to target location
+    local distance = (targetPosition - rootPart.Position).Magnitude
+    local travelTime = math.clamp(distance / 130, 0.15, 1.0)
+
+    local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tween = TweenService:Create(rootPart, tweenInfo, {CFrame = CFrame.new(targetPosition + Vector3.new(0, 3, 0))})
+    
+    tween:Play()
+
+    -- Cleanup after teleportation ends
+    tween.Completed:Connect(function()
+        if beam then beam:Destroy() end
+        if endPart then endPart:Destroy() end
+        if attachmentStart then attachmentStart:Destroy() end
+        isGrappling = false
+    end)
+end
+
+---------------------------------------------------------
+-- Event Handlers
+---------------------------------------------------------
+
+-- 1. Tap GH Button: Equips Grapple Hook (Asset 30393548)
+button.MouseButton1Click:Connect(function()
+    pcall(function()
+        local objects = game:GetObjects("rbxassetid://30393548")
+        if objects and #objects > 0 then
+            local gear = objects[1]
+            gear.Parent = player:WaitForChild("Backpack")
+            
+            if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+                player.Character.Humanoid:EquipTool(gear)
+            end
+        end
+    end)
+end)
+
+-- 2. Tap Anywhere to Grapple
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if isGrappling then return end
+
+        local location = input.Position
+        local unitRay = camera:ScreenPointToRay(location.X, location.Y)
+        
+        local raycastParams = RaycastParams.new()
+        if player.Character then
+            raycastParams.FilterDescendantsInstances = {player.Character}
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        end
+
+        local raycastResult = workspace:Raycast(unitRay.Origin, unitRay.Direction * 2000, raycastParams)
+
+        if raycastResult then
+            grappleTo(raycastResult.Position)
+        end
+    end
+end)
